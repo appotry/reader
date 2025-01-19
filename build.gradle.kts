@@ -6,8 +6,8 @@ import io.github.fvarrui.javapackager.model.WindowsConfig
 import de.undercouch.gradle.tasks.download.Download
 
 buildscript {
-    val kotlin_version: String by extra
-    extra["kotlin_version"] = "1.3.50"
+    val kotlin_version: String by extra{"1.5.21"}
+    // extra["kotlin_version"] = "1.5.21"
     repositories {
 	    mavenLocal()
         mavenCentral()
@@ -56,7 +56,7 @@ apply(plugin = "kotlin")
 apply(plugin = "io.github.fvarrui.javapackager.plugin")
 
 group = "com.htmake"
-version = "1.9.0"
+version = "2.5.4"
 
 java {
     sourceCompatibility = JavaVersion.VERSION_1_8
@@ -76,47 +76,69 @@ val compileOnly by configurations.getting {
 }
 
 dependencies {
-    val kotlin_version: String by extra
+    val kotlin_version: String by extra{"1.5.21"}
+    // val kotlin_version: String by extra
     implementation("org.springframework.boot:spring-boot-starter")
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     implementation("org.jetbrains.kotlin:kotlin-stdlib-jdk8:$kotlin_version")
-    implementation("org.jsoup:jsoup:1.14.1")
-    implementation("com.google.code.gson:gson:2.8.5")
+    // vertx
     implementation("io.vertx:vertx-core:3.8.1")
     implementation("io.vertx:vertx-lang-kotlin:3.8.1")
     implementation("io.vertx:vertx-lang-kotlin-coroutines:3.8.1")
     implementation("io.vertx:vertx-web:3.8.1")
     implementation("io.vertx:vertx-web-client:3.8.1")
-//    implementation("io.vertx:vertx-rx-java2:3.8.1")
-    implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.9.+")
+
+    // json
+    implementation("com.google.code.gson:gson:2.8.5")
+    implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.13.+")
+
+    // log
     implementation("io.github.microutils:kotlin-logging:1.6.24")
-    implementation("com.google.guava:guava:28.0-jre")
-    implementation("com.squareup.okhttp3:okhttp:4.1.1")
     implementation("uk.org.lidalia:sysout-over-slf4j:1.0.2")
-    implementation("io.vertx:vertx-mysql-client:3.8.1")
-    //Retrofit
+
+    implementation("com.google.guava:guava:28.0-jre")
+
+    // 网络
+    implementation("com.squareup.okhttp3:okhttp:4.9.1")
     implementation("com.squareup.okhttp3:logging-interceptor:4.1.0")
+    // Retrofit
     implementation("com.squareup.retrofit2:retrofit:2.6.1")
-
-    implementation("com.github.gedoor:rhino-android:1.3")
-    implementation("cn.wanghaomiao:JsoupXpath:2.3.2")
-    implementation("com.jayway.jsonpath:json-path:2.4.0")
     implementation("com.julienviet:retrofit-vertx:1.1.3")
-    implementation("com.squareup.okhttp3:logging-interceptor:4.2.1")
 
-    // implementation("xmlpull:xmlpull:1.1.3.1")
-    implementation("org.xmlpull:xmlpull:1.1.4.0")
-    implementation("com.github.stefanhaustein:kxml2:2.5.0")
+    //JS rhino
+    // implementation("com.github.gedoor:rhino-android:1.6")
+    implementation(fileTree("src/lib").include("rhino-*.jar"))
+
+    // 规则相关
+    implementation("org.jsoup:jsoup:1.14.1")
+    implementation("cn.wanghaomiao:JsoupXpath:2.5.0")
+    implementation("com.jayway.jsonpath:json-path:2.6.0")
+
+    // xml
+    // 弃用 xmlpull-1.1.4.0，因为它需要 Java9
+    // implementation("org.xmlpull:xmlpull:1.1.4.0")
+    implementation(fileTree("src/lib").include("xmlpull-*.jar"))
+    // implementation("com.github.stefanhaustein:kxml2:2.5.0")
+
+    //加解密类库
+    implementation("cn.hutool:hutool-crypto:5.8.0.M1")
+
+    // 转换繁体
+    // implementation("com.github.liuyueyi.quick-chinese-transfer:quick-transfer-core:0.2.1")
 }
 
-val compileKotlin: KotlinCompile by tasks
-val compileTestKotlin: KotlinCompile by tasks
+// val compileKotlin: KotlinCompile by tasks
+// val compileTestKotlin: KotlinCompile by tasks
 
-compileKotlin.kotlinOptions {
-    jvmTarget = "1.8"
-}
-compileTestKotlin.kotlinOptions {
-    jvmTarget = "1.8"
+// compileKotlin.kotlinOptions {
+//     jvmTarget = "1.8"
+// }
+// compileTestKotlin.kotlinOptions {
+//     jvmTarget = "1.8"
+// }
+
+tasks.withType<KotlinCompile> {
+    kotlinOptions.jvmTarget = "1.8"
 }
 
 application {
@@ -141,6 +163,7 @@ tasks.create<io.github.fvarrui.javapackager.gradle.PackageTask>("packageReaderMa
     setBundleJre(false)
 	// bundleJre = false
     // setCreateZipball(true)
+    platform = Platform.mac
     vmArgs = arrayListOf<String>("-Dreader.app.showUI=true", "-Dspring.profiles.active=prod", "-Dreader.app.packaged=true", "-Dreader.app.debug=false", "-Dlogging.path=\$HOME/.reader/logs")
 }
 
