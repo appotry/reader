@@ -107,7 +107,7 @@ object StringUtils {
     }
 
     fun toFirstCapital(str: String): String {
-        return str.substring(0, 1).toUpperCase() + str.substring(1)
+        return str.substring(0, 1).uppercase(Locale.getDefault()) + str.substring(1)
     }
 
     /**
@@ -116,7 +116,7 @@ object StringUtils {
     fun halfToFull(input: String): String {
         val c = input.toCharArray()
         for (i in c.indices) {
-            if (c[i].toInt() == 32)
+            if (c[i].code == 32)
             //半角空格
             {
                 c[i] = 12288.toChar()
@@ -126,30 +126,35 @@ object StringUtils {
             //if (c[i] == 46) //半角点号，不转换
             // continue;
 
-            if (c[i].toInt() in 33..126)
+            if (c[i].code in 33..126)
             //其他符号都转换为全角
-                c[i] = (c[i].toInt() + 65248).toChar()
+                c[i] = (c[i].code + 65248).toChar()
         }
         return String(c)
     }
 
-    //功能：字符串全角转换为半角
+    /**
+     * 字符串全角转换为半角
+     */
     fun fullToHalf(input: String): String {
         val c = input.toCharArray()
         for (i in c.indices) {
-            if (c[i].toInt() == 12288)
+            if (c[i].code == 12288)
             //全角空格
             {
                 c[i] = 32.toChar()
                 continue
             }
 
-            if (c[i].toInt() in 65281..65374)
-                c[i] = (c[i].toInt() - 65248).toChar()
+            if (c[i].code in 65281..65374)
+                c[i] = (c[i].code - 65248).toChar()
         }
         return String(c)
     }
 
+    /**
+     * 中文大写数字转数字
+     */
     fun chineseNumToInt(chNum: String): Int {
         var result = 0
         var tmp = 0
@@ -165,80 +170,113 @@ object StringUtils {
         }
 
         // "一千零二十五", "一千二" 形式
-        try {
+        return kotlin.runCatching {
             for (i in cn.indices) {
                 val tmpNum = ChnMap[cn[i]]!!
-                if (tmpNum == 100000000) {
-                    result += tmp
-                    result *= tmpNum
-                    billion = billion * 100000000 + result
-                    result = 0
-                    tmp = 0
-                } else if (tmpNum == 10000) {
-                    result += tmp
-                    result *= tmpNum
-                    tmp = 0
-                } else if (tmpNum >= 10) {
-                    if (tmp == 0)
-                        tmp = 1
-                    result += tmpNum * tmp
-                    tmp = 0
-                } else {
-                    tmp = if (i >= 2 && i == cn.size - 1 && ChnMap[cn[i - 1]]!! > 10)
-                        tmpNum * ChnMap[cn[i - 1]]!! / 10
-                    else
-                        tmp * 10 + tmpNum
+                when {
+                    tmpNum == 100000000 -> {
+                        result += tmp
+                        result *= tmpNum
+                        billion = billion * 100000000 + result
+                        result = 0
+                        tmp = 0
+                    }
+                    tmpNum == 10000 -> {
+                        result += tmp
+                        result *= tmpNum
+                        tmp = 0
+                    }
+                    tmpNum >= 10 -> {
+                        if (tmp == 0)
+                            tmp = 1
+                        result += tmpNum * tmp
+                        tmp = 0
+                    }
+                    else -> {
+                        tmp = if (i >= 2 && i == cn.size - 1 && ChnMap[cn[i - 1]]!! > 10)
+                            tmpNum * ChnMap[cn[i - 1]]!! / 10
+                        else
+                            tmp * 10 + tmpNum
+                    }
                 }
             }
             result += tmp + billion
-            return result
-        } catch (e: Exception) {
-            return -1
-        }
-
+            result
+        }.getOrDefault(-1)
     }
 
+    /**
+     * 字符串转数字
+     */
     fun stringToInt(str: String?): Int {
         if (str != null) {
-            val num = fullToHalf(str).replace("\\s".toRegex(), "")
-            return try {
+            val num = fullToHalf(str).replace("\\s+".toRegex(), "")
+            return kotlin.runCatching {
                 Integer.parseInt(num)
-            } catch (e: Exception) {
+            }.getOrElse {
                 chineseNumToInt(num)
             }
-
         }
         return -1
     }
 
+    /**
+     * 是否包含数字
+     */
     fun isContainNumber(company: String): Boolean {
-        val p = Pattern.compile("[0-9]")
+        val p = Pattern.compile("[0-9]+")
         val m = p.matcher(company)
         return m.find()
     }
 
+    /**
+     * 是否数字
+     */
     fun isNumeric(str: String): Boolean {
-        val pattern = Pattern.compile("[0-9]*")
+        val pattern = Pattern.compile("-?[0-9]+")
         val isNum = pattern.matcher(str)
         return isNum.matches()
     }
 
-    // 移除字符串首尾空字符的高效方法(利用ASCII值判断,包括全角空格)
-   fun trim(s: String): String {
-       if (s.isNullOrEmpty()) return ""
-       var start = 0
-       val len = s.length
-       var end = len - 1
-       while (start < end && (s[start].toInt() <= 0x20 || s[start] == '　')) {
-           ++start
-       }
-       while (start < end && (s[end].toInt() <= 0x20 || s[end] == '　')) {
-           --end
-       }
-       if (end < len) ++end
-       return if (start > 0 || end < len) s.substring(start, end) else s
-   }
+    fun wordCountFormat(wc: String?): String {
+        if (wc == null) return ""
+        var wordsS = ""
+        if (isNumeric(wc)) {
+            val words: Int = wc.toInt()
+            if (words > 0) {
+                wordsS = words.toString() + "字"
+                if (words > 10000) {
+                    val df = DecimalFormat("#.#")
+                    wordsS = df.format(words * 1.0f / 10000f.toDouble()) + "万字"
+                }
+            }
+        } else {
+            wordsS = wc
+        }
+        return wordsS
+    }
 
+    /**
+     * 移除字符串首尾空字符的高效方法(利用ASCII值判断,包括全角空格)
+     */
+    fun trim(s: String): String {
+        if (s.isEmpty()) return ""
+        var start = 0
+        val len = s.length
+        var end = len - 1
+        while (start < end && (s[start].code <= 0x20 || s[start] == '　')) {
+            ++start
+        }
+        while (start < end && (s[end].code <= 0x20 || s[end] == '　')) {
+            --end
+        }
+        if (end < len) ++end
+        return if (start > 0 || end < len) s.substring(start, end) else s
+    }
+
+    /**
+     * 重复字符串
+     */
     fun repeat(str: String, n: Int): String {
         val stringBuilder = StringBuilder()
         for (i in 0 until n) {
@@ -247,13 +285,16 @@ object StringUtils {
         return stringBuilder.toString()
     }
 
+    /**
+     * 移除UTF头
+     */
     fun removeUTFCharacters(data: String?): String? {
         if (data == null) return null
         val p = Pattern.compile("\\\\u(\\p{XDigit}{4})")
         val m = p.matcher(data)
         val buf = StringBuffer(data.length)
         while (m.find()) {
-            val ch = Integer.parseInt(m.group(1), 16).toChar().toString()
+            val ch = Integer.parseInt(m.group(1)!!, 16).toChar().toString()
             m.appendReplacement(buf, Matcher.quoteReplacement(ch))
         }
         m.appendTail(buf)
@@ -266,5 +307,32 @@ object StringUtils {
                 .replace("\\s*\\n+\\s*".toRegex(), "\n　　")// 移除空行,并增加段前缩进2个汉字
                 .replace("^[\\n\\s]+".toRegex(), "　　")//移除开头空行,并增加段前缩进2个汉字
                 .replace("[\\n\\s]+$".toRegex(), "") //移除尾部空行
+    }
+
+    fun byteToHexString(bytes: ByteArray?): String {
+        if (bytes == null) return ""
+        val sb = StringBuilder(bytes.size * 2)
+        for (b in bytes) {
+            val hex = 0xff and b.toInt()
+            if (hex < 16) {
+                sb.append('0')
+            }
+            sb.append(Integer.toHexString(hex))
+        }
+        return sb.toString()
+    }
+
+    fun hexStringToByte(hexString: String): ByteArray {
+        val hexStr = hexString.replace(" ", "")
+        val len = hexStr.length
+        val bytes = ByteArray(len / 2)
+        var i = 0
+        while (i < len) {
+            // 两位一组，表示一个字节,把这样表示的16进制字符串，还原成一个字节
+            bytes[i / 2] = ((Character.digit(hexString[i], 16) shl 4) +
+                    Character.digit(hexString[i + 1], 16)).toByte()
+            i += 2
+        }
+        return bytes
     }
 }

@@ -13,4 +13,14 @@ class AppConfig {
     var secure = false    // 是否启用登录鉴权
     var inviteCode = ""   // 注册邀请码
     var secureKey = ""    // 管理密码
+    var cacheChapterContent = false // 是否缓存章节内容
+    var userLimit = 50    // 用户上限
+    var userBookLimit = 200    // 用户书籍上限
+    var debugLog = false  // 调试日志
+    var autoClearInactiveUser = 0  // 自动清理不活跃用户
+
+    var exportUseReplace = false // 导出不使用净化
+    var exportCharset = "UTF-8" // 导出字符集
+    var exportNoChapterName = false // 不添加章节名
+    var exportPictureFile = false // 导出图片
 }

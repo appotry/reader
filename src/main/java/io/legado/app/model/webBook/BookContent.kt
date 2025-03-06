@@ -11,114 +11,139 @@ import io.legado.app.model.analyzeRule.AnalyzeUrl
 import io.legado.app.utils.NetworkUtils
 import io.legado.app.utils.HtmlFormatter
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers.IO
+import kotlinx.coroutines.async
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 
 object BookContent {
 
     suspend fun analyzeContent(
             body: String?,
-            book: Book?,
+            book: Book,
             bookChapter: BookChapter,
             bookSource: BookSource,
             baseUrl: String,
-            nextChapterUrlF: String? = null,
+            redirectUrl: String,
+            nextChapterUrl: String? = null,
             debugLog: DebugLog? = null
     ): String {
         body ?: throw Exception(
                 "error_get_web_content"
         )
         debugLog?.log(bookSource.bookSourceUrl, "≡获取成功:${baseUrl}")
+        val mNextChapterUrl = if (!nextChapterUrl.isNullOrEmpty()) {
+            nextChapterUrl
+        } else {
+            // appDb.bookChapterDao.getChapter(book.bookUrl, bookChapter.index + 1)?.url
+            null
+        }
         val content = StringBuilder()
-        val nextUrlList = arrayListOf(baseUrl)
+        val nextUrlList = arrayListOf(redirectUrl)
         val contentRule = bookSource.getContentRule()
-        var contentData = analyzeContent(body, contentRule, book, bookChapter, bookSource, baseUrl, debugLog = debugLog)
-        content.append(contentData.content)
-        if (contentData.nextUrl.size == 1) {
-            var nextUrl = contentData.nextUrl[0]
-            // 主要是用于终止下一页的解析
-            val nextChapterUrl = if (!nextChapterUrlF.isNullOrEmpty())
-                nextChapterUrlF
-            else
-                null
+        val analyzeRule = AnalyzeRule(book, bookSource).setContent(body, baseUrl)
+        analyzeRule.setRedirectUrl(redirectUrl)
+        analyzeRule.nextChapterUrl = mNextChapterUrl
+        var contentData = analyzeContent(
+            book, baseUrl, redirectUrl, body, contentRule, bookChapter, bookSource, mNextChapterUrl
+        )
+        content.append(contentData.first)
+        if (contentData.second.size == 1) {
+            var nextUrl = contentData.second[0]
             while (nextUrl.isNotEmpty() && !nextUrlList.contains(nextUrl)) {
-                if (!nextChapterUrl.isNullOrEmpty()
-                        && NetworkUtils.getAbsoluteURL(baseUrl, nextUrl)
-                        == NetworkUtils.getAbsoluteURL(baseUrl, nextChapterUrl)
+                if (!mNextChapterUrl.isNullOrEmpty()
+                    && NetworkUtils.getAbsoluteURL(redirectUrl, nextUrl)
+                    == NetworkUtils.getAbsoluteURL(redirectUrl, mNextChapterUrl)
                 ) break
                 nextUrlList.add(nextUrl)
-                AnalyzeUrl(
-                        ruleUrl = nextUrl,
-                        ruleData = book,
-                        headerMapF = bookSource.getHeaderMap()
-                ).getResponseAwait()
-                        .body?.let { nextBody ->
-                    contentData =
-                            analyzeContent(
-                                    nextBody, contentRule, book,
-                                    bookChapter, bookSource, baseUrl, debugLog = debugLog
-                            )
+                val res = AnalyzeUrl(
+                    mUrl = nextUrl,
+                    source = bookSource,
+                    ruleData = book,
+                    headerMapF = bookSource.getHeaderMap()
+                ).getStrResponseAwait(debugLog = debugLog)
+                res.body?.let { nextBody ->
+                    contentData = analyzeContent(
+                        book, nextUrl, res.url, nextBody, contentRule,
+                        bookChapter, bookSource, mNextChapterUrl, false
+                    )
                     nextUrl =
-                            if (contentData.nextUrl.isNotEmpty()) contentData.nextUrl[0] else ""
-                    content.append(contentData.content)
+                        if (contentData.second.isNotEmpty()) contentData.second[0] else ""
+                    content.append("\n").append(contentData.first)
                 }
             }
             debugLog?.log(bookSource.bookSourceUrl, "◇本章总页数:${nextUrlList.size}")
-        } else if (contentData.nextUrl.size > 1) {
-            val contentDataList = arrayListOf<ContentData<String>>()
-            for (item in contentData.nextUrl) {
-                if (!nextUrlList.contains(item))
-                    contentDataList.add(ContentData(nextUrl = item))
-            }
-            for (item in contentDataList) {
-//                withContext(coroutineScope.coroutineContext) {
-                    AnalyzeUrl(
-                            ruleUrl = item.nextUrl,
+        } else if (contentData.second.size > 1) {
+            debugLog?.log(bookSource.bookSourceUrl, "◇并发解析正文,总页数:${contentData.second.size}")
+            withContext(IO) {
+                val asyncArray = Array(contentData.second.size) {
+                    async(IO) {
+                        val urlStr = contentData.second[it]
+                        val analyzeUrl = AnalyzeUrl(
+                            mUrl = urlStr,
+                            source = bookSource,
                             ruleData = book,
                             headerMapF = bookSource.getHeaderMap()
-                    ).getResponseAwait()
-                            .body?.let {
-                        contentData =
-                                analyzeContent(
-                                        it, contentRule, book, bookChapter,
-                                        bookSource, item.nextUrl, debugLog = debugLog
-                                )
-                        item.content = contentData.content
+                        )
+                        val res = analyzeUrl.getStrResponseAwait(debugLog = debugLog)
+                        analyzeContent(
+                            book, urlStr, res.url, res.body!!, contentRule,
+                            bookChapter, bookSource, mNextChapterUrl, false
+                        ).first
                     }
-//                }
+                }
+                asyncArray.forEach { coroutine ->
+                    content.append("\n").append(coroutine.await())
+                }
             }
-            for (item in contentDataList) {
-                content.append(item.content)
-            }
+        }
+        var contentStr = content.toString()
+        val replaceRegex = contentRule.replaceRegex
+        if (!replaceRegex.isNullOrEmpty()) {
+            contentStr = analyzeRule.getString(replaceRegex, contentStr)
         }
         debugLog?.log(bookSource.bookSourceUrl, "┌获取章节名称")
         debugLog?.log(bookSource.bookSourceUrl, "└${bookChapter.title}")
-        debugLog?.log(bookSource.bookSourceUrl, "┌获取正文内容")
-        debugLog?.log(bookSource.bookSourceUrl, "└\n$content")
-        return content.toString()
+        debugLog?.log(bookSource.bookSourceUrl, "┌获取正文内容 (长度：${contentStr.length})")
+        if (contentStr.length > 300) {
+            debugLog?.log(bookSource.bookSourceUrl, "└\n${contentStr.substring(0, 50)} ... ${contentStr.substring(contentStr.length - 30, contentStr.length)}")
+        } else {
+            debugLog?.log(bookSource.bookSourceUrl, "└\n${contentStr}")
+        }
+        return contentStr
     }
 
+    @Throws(Exception::class)
     private fun analyzeContent(
-            body: String,
-            contentRule: ContentRule,
-            book: Book?,
-            chapter: BookChapter,
-            bookSource: BookSource,
-            baseUrl: String,
-            debugLog: DebugLog? = null
-    ): ContentData<List<String>> {
-        val nextUrlList = arrayListOf<String>()
-        val analyzeRule = AnalyzeRule(book)
+        book: Book,
+        baseUrl: String,
+        redirectUrl: String,
+        body: String,
+        contentRule: ContentRule,
+        chapter: BookChapter,
+        bookSource: BookSource,
+        nextChapterUrl: String?,
+        printLog: Boolean = true,
+        debugLog: DebugLog? = null
+    ): Pair<String, List<String>> {
+        val analyzeRule = AnalyzeRule(book, bookSource)
         analyzeRule.setContent(body, baseUrl)
+        val rUrl = analyzeRule.setRedirectUrl(redirectUrl)
+        analyzeRule.nextChapterUrl = nextChapterUrl
+        val nextUrlList = arrayListOf<String>()
         analyzeRule.chapter = chapter
+        //获取正文
+        var content = analyzeRule.getString(contentRule.content)
+        content = HtmlFormatter.formatKeepImg(content, rUrl)
+        //获取下一页链接
         val nextUrlRule = contentRule.nextContentUrl
         if (!nextUrlRule.isNullOrEmpty()) {
-            debugLog?.log(bookSource.bookSourceUrl, "┌获取正文下一页链接")
-            analyzeRule.getStringList(nextUrlRule, true)?.let {
+            if(printLog) debugLog?.log(bookSource.bookSourceUrl, "┌获取正文下一页链接")
+            analyzeRule.getStringList(nextUrlRule, isUrl = true)?.let {
                 nextUrlList.addAll(it)
             }
-            debugLog?.log(bookSource.bookSourceUrl, "└" + nextUrlList.joinToString("，"))
+            if(printLog) debugLog?.log(bookSource.bookSourceUrl, "└" + nextUrlList.joinToString("，"))
         }
-        val content = HtmlFormatter.formatKeepImg(analyzeRule.getString(contentRule.content))
-        return ContentData(content, nextUrlList)
+        return Pair(content, nextUrlList)
     }
 }
